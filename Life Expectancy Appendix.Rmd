@@ -32,7 +32,10 @@ library(gt)
 ```
 
 ```{r, message=FALSE, warning=FALSE}
-df <- read_csv("/Users/christinalopez/Desktop/STAT510_F22/datasets/Life.csv")
+df <- read_csv(
+    paste('https://raw.githubusercontent.com/',
+    'stinalindaa/git-life-expectancy/main/Life.csv',  
+    sep = ""))
 
 df <- df |>
   rename(country = Country,
