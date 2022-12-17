@@ -1,0 +1,373 @@
+---
+title: "Appendix"
+output: pdf_document
+date: "2022-12-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(skimr)
+library(GGally)
+library(readr)
+library(car)
+library(broom)
+library(leaps)
+library(gt)
+```
+
+# Appendix A: Data Cleaning
+
+<https://www.kaggle.com/datasets/kumarajarshi/life-expectancy-who>
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(skimr)
+library(GGally)
+library(readr)
+library(car)
+library(broom)
+library(leaps)
+library(gt)
+```
+
+```{r, message=FALSE, warning=FALSE}
+df <- read_csv("/Users/christinalopez/Desktop/STAT510_F22/datasets/Life.csv")
+
+df <- df |>
+  rename(country = Country,
+         year = Year,
+         status = Status,
+         life = `Life expectancy`,
+         mort = `Adult Mortality`,
+         inf = `infant deaths`,
+         alc = Alcohol,
+         exp.p = `percentage expenditure`,
+         hep = `Hepatitis B`,
+         meas = Measles, 
+         bmi = BMI, 
+         under5 = `under-five deaths`,
+         polio = Polio,
+         exp.t = `Total expenditure`,
+         dip = Diphtheria,
+         hiv = `HIV/AIDS`,
+         gdp = GDP,
+         pop = Population,
+         thin1.19 = `thinness  1-19 years`,
+         thin5.9 = `thinness 5-9 years`,
+         comp = `Income composition of resources`,
+         school = Schooling) |>
+  mutate(year = factor(year))
+head(df)
+```
+
+# Appendix B: Exploratory Data Analysis
+
+## B.1: Skim
+
+```{r}
+skim_without_charts(df)
+```
+
+There are a lot of missing values for some variables, so the first thing we want to do is drop NA's from the data set. Next, we will explore the data while dropping NA's.
+
+```{r}
+common_theme =   theme_minimal() + 
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank())
+```
+
+## B.2: Year
+
+```{r, message=FALSE, warning=FALSE}
+df |>
+  drop_na() |>
+  ggplot(aes(x = year)) +
+  geom_histogram(stat = "count", fill = "#FBEAEB", color = "black") +
+  labs(x = "Year", y = "Count", title = "Histogram of Year") +
+  common_theme
+```
+
+Each year has progressively more data per year when null values are excluded. After 2011, the count flattens out. 2015 is not complete, so it should be excluded.
+
+```{r}
+df |>
+  drop_na() |>
+ggplot(mapping = aes(x = year, y = life)) +
+  geom_boxplot(fill = "#FBEAEB") +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  labs(x = "Year", y = "Life", title = "Life Expectancy per Year") +
+  common_theme
+```
+
+The data should be subset for a recent year, to be most applicable. 2014 is the most recent year with complete data. The boxplot is similar to other recent years, so there is no concern with choosing 2014 as our year to subset the data.
+
+## B.3: Status
+
+```{r}
+df |>
+  drop_na() |>
+ggplot(aes(status, life, fill = status)) + 
+  geom_violin() +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  scale_fill_manual(values = c("rosybrown3", "#FBEAEB")) +
+  labs(x = "Status", y = "Life Expectancy", title = "Life Expectancy per Status") +
+  common_theme + theme(legend.position = "none")
+```
+
+There is a wider range of life expectancy in developing countries. Also, the research interest is in understanding how some developing can have higher life expectancy than others. As such, the data with be further subset by filtering for developing countries only.
+
+## B.4: Subset
+
+```{r}
+df1 <- df |>
+  filter(year %in% "2014",
+         status %in% "Developing") |>
+  select(-country, -year, -status) |>
+  drop_na()
+
+head(df1)
+```
+
+```{r}
+skim_without_charts(df1)
+```
+
+There are 112 observations in our subset of data to analyze. All variables are now numeric because we have filtered to 1 value each for 2 of the categorical variables (year and status). Country was dropped for most of our analysis because each data point represents one country, so it's not useful in setting up regression.
+
+# Appendix C: Which developing countries had the highest life expectancy in 2014?
+
+Bring country back into the data set for visualizations:
+
+```{r}
+df2 <- df  |>
+  filter(year %in% "2014",
+         status %in% "Developing") |>
+  select(life, mort, exp.t, hiv, comp, country) |>
+  drop_na()
+```
+
+Top and bottom countries:
+
+```{r}
+df2 |>
+  arrange(desc(life)) |>
+  head(10) |>
+  ggplot(aes(x = reorder(country,-life), y = life)) +
+  geom_bar(stat = "identity", fill = "#FBEAEB", color = "black", size = 0.2) +
+  geom_text(aes(label=life), vjust=0, color="black", size=3) +
+  labs(x = "Countries", y = "Life Expectancy",
+       title = "Developing Countries With The Highest Life Expectancy in 2014") +
+  common_theme
+```
+
+```{r}
+df2 |>
+  arrange(life) |>
+  head(10) |>
+  ggplot(aes(x = reorder(country,life), y = life)) +
+  geom_bar(stat = "identity", fill = "#FBEAEB", color = "black", size = 0.2) +
+  geom_text(aes(label=life), vjust=0, color="black", size=3) +
+  labs(x = "Countries",
+       title = "Developing Countries With The Lowest Life Expectancy in 2014") +
+  common_theme
+```
+
+# Appendix D: Which variables best predict life expectancy?
+
+## D.1 Stepwise Regression Variable Selection
+
+```{r}
+n = nrow(df1)
+mod0 = lm(life ~ 1, data = df1)
+mod.all = lm(life ~., data = df1)
+step(mod0, scope = list(lower = mod0, upper = mod.all))
+```
+
+The variables selected by the AIC workflow are comp, mort, hiv, exp.t
+
+```{r}
+mod.aic <- lm(life ~ comp + mort + hiv + exp.t, data = df1)
+summary(mod.aic)
+```
+
+R-squared for the AIC model is 0.8616, so 86% of variation is explained by the AIC model.
+
+## D.2 Best Subset Regression Variable Selection
+
+```{r}
+xmat = df1 |>
+select(-life) |>
+select_if(is.numeric)
+dim(xmat)
+```
+
+There are 18 numeric variables up for selection
+
+```{r}
+mod = regsubsets(xmat, df1$life, nvmax = 18)
+summary.mod = summary(mod)
+summary.mod$which
+```
+
+```{r}
+summary.mod$rsq #check R^2
+```
+
+R-squared levels out at the model with 4 predictors
+
+```{r}
+summary.mod$adjr2 #check adjusted R^2
+```
+
+```{r}
+`Adjusted R ^2` <- summary.mod$adjr2
+plot(`Adjusted R ^2`)
+```
+
+Adjusted R-squared levels out at the model with 4 predictors
+
+```{r}
+summary.mod$cp
+```
+
+```{r}
+`Mallow's cp` <- summary.mod$cp
+plot(`Mallow's cp`) 
+abline(1,1)
+```
+
+The model with 4 variables is the simplest model with a Cp value (0.403) lower than p (19). The model with 4 variables includes comp, mort, hiv, and exp.t. So the model selected by best subset regression is the same as the model selected by stepwise regression.
+
+# Appendix E: Are there interactions between variables used to predict life expectancy?
+
+## E.1 Check interactions
+
+```{r}
+add1(mod.aic, ~.+comp*mort+comp*hiv+comp*exp.t, test = 'F')
+```
+
+## E.2 Update model
+
+```{r}
+mod = update(mod.aic, ~.+comp:exp.t+comp:hiv)
+summary(mod)
+```
+
+## E.3 Model assumptions
+
+Check linearity:
+
+```{r, message = FALSE, warning = FALSE}
+df2 |>
+  ggplot(aes(x = comp, y = life, label = country)) +
+  geom_point(shape = 21, color = "thistle4", fill = "#FBEAEB", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "thistle4") + 
+  labs(x = "Income Composition of Resources", y = "Life Expectancy", 
+       title = "Life Expectancy vs Income Composition of Resources") +
+  common_theme
+```
+
+```{r, message = FALSE, warning = FALSE}
+df2 |>
+  ggplot(aes(x = mort, y = life, label = country)) +
+  geom_point(shape = 21, color = "thistle4", fill = "#FBEAEB", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "thistle4") + 
+  labs(x = "Adult Mortality", y = "Life Expectancy", 
+       title = "Life Expectancy vs Adult Mortality") +
+  common_theme
+```
+
+```{r, message = FALSE, warning = FALSE}
+df2 |>
+  ggplot(aes(x = hiv, y = life, label = country)) +
+  geom_point(shape = 21, color = "thistle4", fill = "#FBEAEB", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "thistle4") + 
+  labs(x = "HIV / AIDS", y = "Life Expectancy", title = "Life Expectancy vs HIV / AIDS") +
+  common_theme
+```
+
+```{r, message = FALSE, warning = FALSE}
+df2 |>
+  ggplot(aes(x = exp.t, y = life, label = country)) +
+  geom_point(shape = 21, color = "thistle4", fill = "#FBEAEB", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "thistle4") + 
+  labs(x = "Total Expenditure", y = "Life Expectancy", 
+       title = "Life Expectancy vs Total Expenditure") +
+  common_theme
+```
+
+Check variance and linearity:
+
+```{r}
+model.table = augment(mod)
+ggplot(model.table, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, colour = 'blue') +
+  labs(x = 'Fitted Values', y = 'Residuals') +
+  ggtitle('Residual vs Fit') +
+  theme_bw()
+```
+
+There are no issues with the variance or linearity assumption.
+
+Check normality:
+
+```{r}
+ggplot(model.table, aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle('Normal Q-Q Plot') +
+  theme_bw()
+```
+
+```{r}
+shapiro.test(resid(mod))
+```
+
+# Appendix F: Are the predictors positive or negatively correlated to life expectancy?
+
+```{r, message=FALSE, warning=FALSE}
+df2 |>
+  select(-country) |>
+  ggpairs(
+    lower = list(continuous = wrap("points", shape = 21, fill = "thistle3", 
+                                   color = "thistle4", size = 0.8)),
+    diag = list(continuous = wrap("densityDiag", color = "thistle4")),
+    title = "Scatterplot Matrix for Life Expectancy Model") +
+  theme_light() +  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank())
+```
+
+# Appendix G: Make a 95% point prediction for the life expectancy of a country with predictor values as the mean response of each predictor.
+
+```{r}
+new <- df2 |>
+  summarize(mort = mean(mort),
+            hiv = mean(hiv),
+            comp = mean(comp),
+            exp.t = mean(exp.t)) |>
+  data.frame()
+
+pi = predict(mod, new, interval = "prediction", level = 0.95)
+pi
+```
+
+# Appendix H: Summary Table
+
+```{r}
+df2 |>
+  select(country, life, mort,hiv,comp,exp.t) |>
+  rename("Country" = country, "Life" = life, "Mort" = mort,
+         "Comp" = comp, "Exp.T" = exp.t) |>
+  arrange(desc(Life)) |>
+  head(10) |>
+  gt(rowname_col = "Country") |>
+  tab_header(title = md("Summary of **Life Expectancy**")) |>
+  tab_stubhead(label = md("Country"))
+
+```
